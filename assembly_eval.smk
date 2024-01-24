@@ -16,7 +16,7 @@ SAMPLES = list(config.keys())
 
 FOFNS = {}
 TYPE_MAP = {}
-GET_BED = []
+#GET_BED = []
 SAMFLAG = config.get("SAMFLAG", "256")
 
 expand_series = pd.Series([[], [], []], index=["sample", "tech", "type_map"])
@@ -47,8 +47,8 @@ for SM in SAMPLES:
             TYPE_MAP[SM]["HiFi"] = config[SM]["type_map"]["HiFi"]
         if "ONT" in config[SM]["type_map"]:
             TYPE_MAP[SM]["ONT"] = config[SM]["type_map"]["ONT"]
-    if config[SM]["genBed"]:
-        GET_BED.append(SM)
+#    if config[SM]["genBed"]:
+#        GET_BED.append(SM)
 
 
 # print(FOFNS)
@@ -63,7 +63,7 @@ def getAsm(wildcards):
     try:
         tig_fofn = config[wildcards.sample]["extra_tigs"]
         with open(tig_fofn, 'r') as infile:
-            tig_dict = {f'tig{i}' : line.rstrip for i, line in enumerate(infile) }
+            tig_dict = {f'tig{i}' : line.rstrip() for i, line in enumerate(infile) }
         return asm_dict | tig_dict
     except KeyError:
         return asm_dict
@@ -191,6 +191,8 @@ localrules:
     calc_cov,
     trigger_steps,
     getFinal,
+    all_cram,
+    all_nucfreq,
 
 
 rule all_eval:
@@ -207,7 +209,7 @@ rule all_eval:
 rule all_align:
     input:
         expand(
-            "{sample}/alignments/{tech}/{type_map}/all_{tech}.bam",
+            "{sample}/alignments/{tech}/{type_map}/all_{tech}.cram",
             zip,
             sample=expand_series["sample"],
             tech=expand_series["tech"],
@@ -215,10 +217,10 @@ rule all_align:
         ),
 
 
-rule all_cram:
+rule all_qc_bed:
     input:
         expand(
-            "{sample}/alignments/{tech}/{type_map}/all_{tech}.cram",
+            "{sample}/assembly_eval/{tech}/{type_map}/final_qc.bed"
             zip,
             sample=expand_series["sample"],
             tech=expand_series["tech"],
@@ -243,11 +245,11 @@ rule combine_asm:
         mem=8,
         load=100,
         disk=0,
-        hrs=2,
+        hrs=4,
     shell:
         """
         for asm in $( echo {input} ); do
-            if ( file ${{asm}} | grep -q compressed ); then
+            if ( file $( readlink -f ${{asm}} ) | grep -q compressed ); then
                 zcat ${{asm}} | bgzip -c >> {output.comb_fast}
             else
                 cat ${{asm}} | bgzip -c >> {output.comb_fast}
@@ -303,7 +305,7 @@ rule map_minimap:
         mem=12,
         load=100,
         disk=0,
-        hrs=24,
+        hrs=48,
     run:
         if wildcards.tech == "HiFi":
             shell(
@@ -341,13 +343,13 @@ rule combine_alignments:
     input:
         align=gatherAlignments,
     output:
-        combined="{sample}/alignments/{tech}/{type_map}/all_{tech}.bam",
+        combined=temp("{sample}/alignments/{tech}/{type_map}/all_{tech}.bam"),
     threads: 4
     resources:
         mem=8,
         disk=0,
         load=100,
-        hrs=12,
+        hrs=48,
     shell:
         """
         samtools merge -@ {threads} {output.combined} {input.align}
@@ -364,15 +366,14 @@ rule cram_alignments:
     params:
         samflag=SAMFLAG
     threads: 4
-
     resources:
         mem=8,
         disk=0,
         load=100,
-        hrs=12,
+        hrs=48,
     shell:
         """
-        samtools view -F {params.samflag} -C -T {input.ref} -o {output.cram} {input.bam}
+        samtools view -@ {threads} -F {params.samflag} -C -T {input.ref} -o {output.cram} {input.bam}
         samtools index {output.cram}
         """
 
@@ -388,7 +389,7 @@ rule hifi_fai_to_beds:
         mem=12,
         disk=0,
         load=50,
-        hrs=12,
+        hrs=24,
     run:
         file_name = input.fai
         N_IDS = len(output.bed)
@@ -687,6 +688,7 @@ rule rptm:
     output:
         repeat_out="{sample}/repeatMasker/{region}.fa.out",
     threads: 16
+    log: "log/rptm/{sample}_{region}.log"
     resources:
         mem=8,
         load=1000,
@@ -697,7 +699,7 @@ rule rptm:
         species=getSpecies,
     shell:
         """
-        RepeatMasker -species {params.species} -dir {params.directory} -pa {threads} {input.assembly}
+        RepeatMasker -e rmblast -species {params.species} -dir {params.directory} -pa {threads} {input.assembly} > {log} 2>&1 
         """
 
 
@@ -740,23 +742,24 @@ rule nucFreq:
     output:
         png="{sample}/nucFreq/{tech}/{region}/{type_map}/{sample}_{breaks}.output.png",
     threads: 1
+    log: "log/nucFreq/{sample}_{tech}_{region}_{type_map}_{breaks}.log"
     resources:
         mem=12,
         load=100,
         disk=0,
-        hrs=12,
+        hrs=24,
     params:
         user_opt=getNucOpts,
     run:
         if "rptm" in input.keys():
             shell_string = (
-                "{SNAKEMAKE_DIR}/scripts/NucPlot.py --bed {input.bed} -r %s {params.user_opt} %s {output.png}"
+                "{SNAKEMAKE_DIR}/scripts/NucPlot.py --bed {input.bed} -r %s {params.user_opt} %s {output.png} > {log} 2>&1"
                 % (input.get("rptm"), input.get("bam"))
             )
             shell(shell_string)
         else:
             shell(
-                "{SNAKEMAKE_DIR}/scripts/NucPlot.py --bed {input.bed} {params.user_opt} {input.bam} {output.png}"
+                "{SNAKEMAKE_DIR}/scripts/NucPlot.py --bed {input.bed} {params.user_opt} {input.bam} {output.png} > {log} 2>&1"
             )
 
 
