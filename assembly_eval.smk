@@ -191,7 +191,8 @@ localrules:
     calc_cov,
     trigger_steps,
     getFinal,
-    all_cram,
+    all_eval,
+    all_align,
     all_nucfreq,
 
 
@@ -215,18 +216,6 @@ rule all_align:
             tech=expand_series["tech"],
             type_map=expand_series["type_map"],
         ),
-
-
-rule all_qc_bed:
-    input:
-        expand(
-            "{sample}/assembly_eval/{tech}/{type_map}/final_qc.bed"
-            zip,
-            sample=expand_series["sample"],
-            tech=expand_series["tech"],
-            type_map=expand_series["type_map"],
-        ),
-
 
 
 rule all_nucfreq:
