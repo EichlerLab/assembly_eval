@@ -289,7 +289,7 @@ rule map_minimap:
         fai=rules.combine_asm.output.comb_fai,
     output:
         bam=temp("{sample}/alignments/{tech}/minimap2/tmp/{read}.bam"),
-    threads: 8
+    threads: 12
     resources:
         mem=12,
         load=100,
@@ -314,7 +314,7 @@ rule map_winnowmap:
         repKmers=rules.getRepeatKmers.output.rep,
     output:
         bam=temp("{sample}/alignments/{tech}/winnowmap/tmp/{read}.bam"),
-    threads: 8
+    threads: 12
     resources:
         mem=lambda wildcards, attempt: attempt * 10,
         disk=0,
@@ -352,6 +352,24 @@ rule cram_alignments:
         ref = rules.combine_asm.output.comb_fast,
     output:
         cram="{sample}/alignments/{tech}/{type_map}/all_{tech}.cram",
+    threads: 4
+    resources:
+        mem=8,
+        disk=0,
+        load=100,
+        hrs=48,
+    shell:
+        """
+        samtools view -@ {threads} -C -T {input.ref} -o {output.cram} {input.bam}
+        samtools index {output.cram}
+        """
+
+rule cram_nucfreq:
+    input:
+        bam = rules.cram_alignments.output.cram,
+        ref = rules.combine_asm.output.comb_fast,
+    output:
+        cram="{sample}/alignments/nucfreq/{tech}/{type_map}/all_{tech}.cram",
     params:
         samflag=SAMFLAG
     threads: 4
@@ -415,7 +433,7 @@ rule hifi_fai_to_beds:
 rule get_depth_cov:
     input:
         bed="temp/{sample}/coverage/contigs_{scatteritem}.bed",
-        bam=rules.cram_alignments.output.cram,
+        bam=rules.cram_nucfreq.output.cram,
     output:
         depth="{sample}/coverage/{tech}/{type_map}/tmp/filtered_{scatteritem}.tsv",
     threads: 1
@@ -479,7 +497,7 @@ checkpoint filter_depth_cov:
 rule rustybam:
     input:
         depth=rules.filter_depth_cov.output.depth,
-        bam=rules.cram_alignments.output.cram,
+        bam=rules.cram_nucfreq.output.cram,
     output:
         bed="{sample}/coverage/{tech}/{type_map}/{scatteritem}_intermediate.bed",
     threads: 4
@@ -504,7 +522,7 @@ rule filter_rustybam:
         mem=50,
         load=50,
         disk=0,
-        hrs=12,
+        hrs=24,
     run:
         bed_df = pd.read_csv(input.bed, sep="\t", header=0)
         bed_df["second_highest"] = bed_df.iloc[:,][["A", "G", "T", "C"]].apply(
