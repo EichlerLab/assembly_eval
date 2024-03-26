@@ -642,9 +642,8 @@ rule combine_outputs:
         hrs=12,
     shell:
         """
-        cat {input.all_beds} > {output.cat_beds}
+        cat {input.all_beds} | awk -F'\\t' -v OFS='\\t' '{{split($4,a,","); asort(a); $4=""; delete b; for(i in a) if(!b[a[i]]++) $4=$4 a[i] ","; sub(/,$/,"",$4); print}}' > {output.cat_beds}
         """
-
 
 rule formatContigs:
     input:
