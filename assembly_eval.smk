@@ -290,20 +290,17 @@ rule map_minimap:
     output:
         bam=temp("{sample}/alignments/{tech}/minimap2/tmp/{read}.bam"),
     threads: 12
+    params:
+        winn_opt=getFlag,
     resources:
         mem=12,
         load=100,
         disk=0,
         hrs=48,
-    run:
-        if wildcards.tech == "HiFi":
-            shell(
-                "minimap2 -a -t {threads} -I 10G -Y -x map-pb --eqx -L --cs {input.assembly} {input.fasta} | samtools sort -o {output.bam} -"
-            )
-        elif wildcards.tech == "ONT":
-            shell(
-                "minimap2 -a -t {threads} -I 10G -Y -x map-ont --eqx -L --cs {input.assembly} {input.fasta} | samtools sort -o {output.bam} -"
-            )
+    shell:
+        """
+        minimap2 -a -t {threads} -I 10G -Y -x {params.winn_opt} --eqx -L --cs {input.assembly} {input.fasta} | samtools sort -o {output.bam} -
+        """
 
 
 rule map_winnowmap:
