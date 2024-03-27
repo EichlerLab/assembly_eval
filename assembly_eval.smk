@@ -235,6 +235,8 @@ rule combine_asm:
         load=100,
         disk=0,
         hrs=4,
+    singularity:
+        "docker://wtharvey/assembly_eval:0.1"
     shell:
         """
         for asm in $( echo {input} ); do
@@ -259,6 +261,8 @@ rule countKmers:
         load=100,
         disk=0,
         hrs=8,
+    singularity:
+        "docker://wtharvey/assembly_eval:0.1"
     shell:
         """
         meryl count k=15 output {output.dirct} {input.assembly}
@@ -276,6 +280,8 @@ rule getRepeatKmers:
         load=100,
         disk=0,
         hrs=8,
+    singularity:
+        "docker://wtharvey/assembly_eval:0.1"
     shell:
         """
         meryl print greater-than distinct=0.9998 {input.db} > {output.rep}
@@ -297,6 +303,8 @@ rule map_minimap:
         load=100,
         disk=0,
         hrs=48,
+    singularity:
+        "docker://wtharvey/assembly_eval:0.1"
     shell:
         """
         minimap2 -a -t {threads} -I 10G -Y -x {params.winn_opt} --eqx -L --cs {input.assembly} {input.fasta} | samtools sort -o {output.bam} -
@@ -319,6 +327,8 @@ rule map_winnowmap:
         hrs=120,
     params:
         winn_opt=getFlag,
+    singularity:
+        "docker://wtharvey/assembly_eval:0.1"
     shell:
         """
         winnowmap -W {input.repKmers} -t {threads} -I 10G -Y -ax {params.winn_opt} --MD --cs -L --eqx {input.assembly} {input.fasta} | samtools sort -o {output.bam} -
@@ -336,6 +346,8 @@ rule combine_alignments:
         disk=0,
         load=100,
         hrs=48,
+    singularity:
+        "docker://wtharvey/assembly_eval:0.1"
     shell:
         """
         samtools merge -@ {threads} {output.combined} {input.align}
@@ -355,6 +367,8 @@ rule cram_alignments:
         disk=0,
         load=100,
         hrs=48,
+    singularity:
+        "docker://wtharvey/assembly_eval:0.1"
     shell:
         """
         samtools view -@ {threads} -C -T {input.ref} -o {output.cram} {input.bam}
@@ -375,6 +389,8 @@ rule cram_nucfreq:
         disk=0,
         load=100,
         hrs=48,
+    singularity:
+        "docker://wtharvey/assembly_eval:0.1"
     shell:
         """
         samtools view -@ {threads} -F {params.samflag} -C -T {input.ref} -o {output.cram} {input.bam}
@@ -439,6 +455,8 @@ rule get_depth_cov:
         disk=0,
         load=50,
         hrs=12,
+    singularity:
+        "docker://wtharvey/assembly_eval:0.1"
     shell:
         """
         samtools depth -b {input.bed} -a {input.bam} > {output.depth}
@@ -485,6 +503,8 @@ checkpoint filter_depth_cov:
         load=50,
         disk=0,
         hrs=12,
+    singularity:
+        "docker://wtharvey/assembly_eval:0.1"
     shell:
         """
         cat {input.cov}| xargs -i awk '{{if ($3 > {{}} || $3==0) printf ("%s\\t%s\\t%s\\n", $1, $2, $2)}}' {input.depth}| bedtools merge -i - > {output.depth}  
@@ -503,6 +523,8 @@ rule rustybam:
         load=50,
         disk=0,
         hrs=12,
+    singularity:
+        "docker://wtharvey/assembly_eval:0.1"
     shell:
         """
         rustybam nucfreq -t {threads} --bed {input.depth} {input.bam} > {output.bed}                
@@ -557,6 +579,8 @@ rule filter_bed:
         load=50,
         disk=0,
         hrs=12,
+    singularity:
+        "docker://wtharvey/assembly_eval:0.1"
     shell:
         """
         bedtools merge -i {input.bed} -c 1,4 -o count,collapse -d 5000 | awk '$4 > 2' | bedtools merge -i - -d 15000 -c 5 -o collapse | awk '{{printf "%s\\t%s\\t%s\\t%s\\n", $1, $2-5000, $3+5000,$4}}' > {output.filtered_bed}
@@ -618,6 +642,8 @@ rule trigger_steps:
         bed=aggregate_input,
     output:
         location_all="{sample}/coverage/{tech}/{type_map}/aggregated/{scatteritem}_break.bed",
+    singularity:
+        "docker://wtharvey/assembly_eval:0.1"
     shell:
         """
         cp -l {input.bed} {output.location_all}
@@ -637,6 +663,8 @@ rule combine_outputs:
         disk=0,
         load=50,
         hrs=12,
+    singularity:
+        "docker://wtharvey/assembly_eval:0.1"
     shell:
         """
         cat {input.all_beds} | awk -F'\\t' -v OFS='\\t' '{{split($4,a,","); asort(a); $4=""; delete b; for(i in a) if(!b[a[i]]++) $4=$4 a[i] ","; sub(/,$/,"",$4); print}}' > {output.cat_beds}
@@ -679,6 +707,8 @@ rule filterFasta:
         load=100,
         disk=0,
         hrs=1,
+    singularity:
+        "docker://wtharvey/assembly_eval:0.1"
     shell:
         """
         samtools faidx -r {input.contigs} {input.assembly} > {output.filt_fasta}
@@ -700,6 +730,8 @@ rule rptm:
     params:
         directory="{sample}/repeatMasker/",
         species=getSpecies,
+    singularity:
+        "docker://wtharvey/assembly_eval:0.1"
     shell:
         """
         RepeatMasker -e rmblast -species {params.species} -dir {params.directory} -pa {threads} {input.assembly} > {log} 2>&1 
