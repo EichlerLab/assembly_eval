@@ -52,7 +52,7 @@ for SM in SAMPLES:
 
 
 # print(FOFNS)
-shell.prefix("source %s/env.cfg; " % (SNAKEMAKE_DIR))
+#shell.prefix("source %s/env.cfg; " % (SNAKEMAKE_DIR))
 
 
 def getAsm(wildcards):
