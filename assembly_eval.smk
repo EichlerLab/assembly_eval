@@ -145,9 +145,11 @@ def gatherBreaks(wildcards):
 
 def getFlag(wildcards):
     if wildcards.tech == "HiFi":
-        return "map-hifi"
+        return "lr:hqae" ## applied for aligning accurate long reads back to their assembly. in minimap2 2.28.0
     elif wildcards.tech == "ONT":
         return "map-ont"
+    elif wildcards.tech == "ONT-Q20":
+        return "lr:hqae"
 
 
 def getCount(wildcards):
