@@ -215,7 +215,6 @@ rule all_eval:
             type_map=expand_series["type_map"],
         ),
 
-
 rule all_align:
     input:
         expand(
@@ -335,12 +334,12 @@ rule map_winnowmap:
         load=100,
         hrs=120,
     params:
-        winn_opt=getFlag,
+        map_opt=get_winnowmap_opt,
     singularity:
         "docker://eichlerlab/assembly_eval:0.3"
     shell:
         """
-        winnowmap -W {input.repKmers} -t {threads} -I 10G -Y -ax {params.winn_opt} --MD --cs -L --eqx {input.assembly} {input.fasta} | samtools sort -o {output.bam} -
+        winnowmap -W {input.repKmers} -t {threads} -I 10G -Y -ax {params.map_opt} --MD --cs -L --eqx {input.assembly} {input.fasta} | samtools sort -o {output.bam} -
         """
 
 
