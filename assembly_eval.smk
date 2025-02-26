@@ -186,9 +186,9 @@ def nucfeq_output(wildcards):
                         )
     return set(nucfeq_out)
 
-wildcards_constraints:
-    tech="HiFi|ONT|ONT-Q20"
-
+wildcard_constraints:
+    tech="HiFi|ONT|ONT-Q20",
+    type_map="minimap2|winnowmap"
 
 scattergather:
     split=30,
