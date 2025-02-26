@@ -12,8 +12,9 @@ done
 
 DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
 
-
+#module load miniconda/4.12.0
 module load miniconda/23.5.2
+#module load rustybam/0.1.29
 
 snakefile=$DIR/assembly_eval.smk
 waitTime=10
@@ -30,7 +31,7 @@ mkdir -p $logDir
 snakemake -p \
         -s $snakefile \
         --drmaa " -P eichlerlab \
-                -l h_rt=48:00:00  \
+                -l h_rt={resources.hrs}:00:00  \
                 -shell y \
                 -l mfree={resources.mem}G \
                 -pe serial {threads} \
@@ -40,7 +41,8 @@ snakemake -p \
         --drmaa-log-dir $logDir \
         --latency-wait $waitTime \
         --use-singularity \
-        --singularity-args="--bind /net/:/net/" \
+        --singularity-args "--bind /net:/net" \
         --restart-times $retry  \
         --ri \
+	-kp \
         --jobs $@
