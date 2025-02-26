@@ -143,13 +143,17 @@ def gatherBreaks(wildcards):
     )
 
 
-def getFlag(wildcards):
-    if wildcards.tech == "HiFi":
+def get_minimap_opt(wildcards):
+    if wildcards.tech in ["HiFi", "ONT-Q20"]:
         return "lr:hqae" ## applied for aligning accurate long reads back to their assembly. in minimap2 2.28.0
     elif wildcards.tech == "ONT":
         return "map-ont"
-    elif wildcards.tech == "ONT-Q20":
-        return "lr:hqae"
+
+def get_winnowmap_opt(wildcards):
+    if wildcards.tech == "HiFi":
+        return "map-pb"
+    elif re.search(wildcards.tech,"ONT"): ## ONT or ONT-Q20
+        return "map-ont"
 
 
 def getCount(wildcards):
@@ -181,6 +185,9 @@ def nucfeq_output(wildcards):
                             f"{sample}/nucFreq/{tech}/{region}/{type_map}/{sample}.done"
                         )
     return set(nucfeq_out)
+
+wildcards_constraints:
+    tech="HiFi|ONT|ONT-Q20"
 
 
 scattergather:
@@ -299,7 +306,7 @@ rule map_minimap:
         bam=temp("{sample}/alignments/{tech}/minimap2/tmp/{read}.bam"),
     threads: 12
     params:
-        winn_opt=getFlag,
+        map_opt=get_minimap_opt,
     resources:
         mem=12,
         load=100,
@@ -309,7 +316,7 @@ rule map_minimap:
         "docker://eichlerlab/assembly_eval:0.3"
     shell:
         """
-        minimap2 -a -t {threads} -I 10G -Y -x {params.winn_opt} --eqx -L --cs {input.assembly} {input.fasta} | samtools sort -o {output.bam} -
+        minimap2 -a -t {threads} -I 10G -Y -x {params.map_opt} --eqx -L --cs {input.assembly} {input.fasta} | samtools sort -o {output.bam} -
         """
 
 
