@@ -531,7 +531,7 @@ rule rustybam:
         mem=16,
         load=75,
         disk=0,
-        hrs=120,
+        hrs=240,
     benchmark:
         "benchmarks/rustybam_{sample}_{tech}_{type_map}_{scatteritem}.bench.txt"
     singularity:
