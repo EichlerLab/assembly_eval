@@ -191,12 +191,11 @@ wildcard_constraints:
     type_map="minimap2|winnowmap"
 
 scattergather:
-    split=30,
+    split=60,
 
 
 localrules:
     rptm,
-    nucFreq,
     calc_cov,
     trigger_steps,
     getFinal,
@@ -422,7 +421,7 @@ rule hifi_fai_to_beds:
         file_name = input.fai
         N_IDS = len(output.bed)
         # print(output.bed)
-        outs = [open(f, "wb") for f in output.bed]
+
         # print(outs)
         fai_df = pd.read_csv(
             input.fai,
@@ -430,25 +429,52 @@ rule hifi_fai_to_beds:
             names=["contig", "len", "offset", "byte", "encode"],
             sep="\t",
         )
-        bed_df = pd.DataFrame(columns=["chrom", "start", "stop"])
-        bed_df["chrom"] = fai_df["contig"].values.tolist()
-        bed_df = bed_df.assign(start="0")
-        bed_df["stop"] = fai_df["len"].values.tolist()
-        out_idx = 0
-        # print(out_idx)
-        for i in bed_df.index:
-            out_list = (
-                bed_df.iloc[i, :].to_string(header=False, index=False).split("\n")
-            )
-            out_str = "".join(out_list)
-            print(out_idx)
-            # print(outs[out_idx])
-            outs[out_idx].write((out_str + "\n").encode())
-            out_idx += 1
-            if out_idx == N_IDS:
-                out_idx = 0
-        for out in outs:
-            out.close()
+        
+        total_genome_length = sum(fai_df["len"])
+        chunk_len = int(total_genome_length/N_IDS)
+
+
+
+        bed_dict = dict()
+        split_index = 0
+        accum_len = 0
+
+        for idx, row in fai_df.iterrows():
+            chrom = row["contig"]
+            end = row["len"]
+            start = 0
+            contig_len = end - start
+
+            while contig_len > 0:
+                if split_index == N_IDS - 1: # the last chunk
+                    to_take = min(contig_len, remain)
+                    invertal = "%s\t%s\t%s"%(chrom,start,start+to_take)
+                    bed_dict.setdefault(split_index, []).append(invertal)
+                    start += to_take
+                    contig_len -= to_take
+                    continue
+
+
+                remain = chunk_len - accum_len
+                to_take = min(contig_len, remain)
+                invertal = "%s\t%s\t%s"%(chrom,start,start+to_take)
+                bed_dict.setdefault(split_index, []).append(invertal)
+
+                start += to_take
+                contig_len -= to_take
+                accum_len += to_take
+
+                if accum_len == chunk_len:
+                    split_index += 1
+                    accum_len = 0
+
+        outs = [open(f, "wb") for f in output.bed]
+
+        for i in range(N_IDS):
+            outs[i].write(("\n".join(bed_dict[i])+"\n").encode())
+            outs[i].close()
+            
+
 
 
 rule get_depth_cov:
@@ -526,7 +552,7 @@ rule rustybam:
     output:
         bed="{sample}/coverage/{tech}/{type_map}/{scatteritem}_intermediate.bed",
         flag="{sample}/coverage/{tech}/{type_map}/{scatteritem}_intermediate.done",
-    threads: 8
+    threads: 1
     resources:
         mem=16,
         load=75,
@@ -714,7 +740,7 @@ rule formatContigs:
             write_line = str(contig) + "\n"
             outfile.write(write_line)
         outfile.close()
-
+[]
 
 rule filterFasta:
     input:
