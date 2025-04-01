@@ -191,7 +191,7 @@ wildcard_constraints:
     type_map="minimap2|winnowmap"
 
 scattergather:
-    split=60,
+    split=30,
 
 
 localrules:
@@ -244,8 +244,7 @@ rule combine_asm:
         hrs=4,
     singularity:
         "docker://eichlerlab/assembly_eval:0.4"
-    shell:
-        """
+    shell: """
         for asm in $( echo {input} ); do
             if ( file $( readlink -f ${{asm}} ) | grep -q zip ); then
                 zcat ${{asm}} | bgzip -c >> {output.comb_fast}
@@ -270,8 +269,7 @@ rule countKmers:
         hrs=8,
     singularity:
         "docker://eichlerlab/assembly_eval:0.4"
-    shell:
-        """
+    shell: """
         meryl count k=15 output {output.dirct} {input.assembly}
         """
 
@@ -289,8 +287,7 @@ rule getRepeatKmers:
         hrs=8,
     singularity:
         "docker://eichlerlab/assembly_eval:0.4"
-    shell:
-        """
+    shell: """
         meryl print greater-than distinct=0.9998 {input.db} > {output.rep}
         """
 
@@ -312,8 +309,7 @@ rule map_minimap:
         hrs=48,
     singularity:
         "docker://eichlerlab/assembly_eval:0.4"
-    shell:
-        """
+    shell: """
         minimap2 -a -t {threads} -I 10G -Y -x {params.map_opt} --eqx -L --cs {input.assembly} {input.fasta} | samtools sort -o {output.bam} -
         """
 
@@ -336,8 +332,7 @@ rule map_winnowmap:
         map_opt=get_winnowmap_opt,
     singularity:
         "docker://eichlerlab/assembly_eval:0.4"
-    shell:
-        """
+    shell: """
         winnowmap -W {input.repKmers} -t {threads} -I 10G -Y -ax {params.map_opt} --MD --cs -L --eqx {input.assembly} {input.fasta} | samtools sort -o {output.bam} -
         """
 
@@ -355,8 +350,7 @@ rule combine_alignments:
         hrs=48,
     singularity:
         "docker://eichlerlab/assembly_eval:0.4"
-    shell:
-        """
+    shell: """
         samtools merge -@ {threads} {output.combined} {input.align}
         samtools index {output.combined}
         """
@@ -376,8 +370,7 @@ rule cram_alignments:
         hrs=48,
     singularity:
         "docker://eichlerlab/assembly_eval:0.4"
-    shell:
-        """
+    shell: """
         samtools view -@ {threads} -C -T {input.ref} -o {output.cram} {input.bam}
         samtools index {output.cram}
         """
@@ -398,8 +391,7 @@ rule cram_nucfreq:
         hrs=48,
     singularity:
         "docker://eichlerlab/assembly_eval:0.4"
-    shell:
-        """
+    shell: """
         samtools view -@ {threads} -F {params.samflag} -C -T {input.ref} -o {output.cram} {input.bam}
         samtools index {output.cram}
         """
@@ -491,8 +483,7 @@ rule get_depth_cov:
         hrs=12,
     singularity:
         "docker://eichlerlab/assembly_eval:0.4"
-    shell:
-        """
+    shell: """
         samtools depth -b {input.bed} -a {input.bam} > {output.depth}
         """
 
@@ -539,8 +530,7 @@ checkpoint filter_depth_cov:
         hrs=12,
     singularity:
         "docker://eichlerlab/assembly_eval:0.4"
-    shell:
-        """
+    shell: """
         cat {input.cov}| xargs -i awk '{{if ($3 > {{}} || $3==0) printf ("%s\\t%s\\t%s\\n", $1, $2, $2)}}' {input.depth}| bedtools merge -i - > {output.depth}  
         """
 
@@ -552,19 +542,23 @@ rule rustybam:
     output:
         bed="{sample}/coverage/{tech}/{type_map}/{scatteritem}_intermediate.bed",
         flag="{sample}/coverage/{tech}/{type_map}/{scatteritem}_intermediate.done",
+    params:
+        tmp_bed="{sample}_{tech}_{type_map}_{scatteritem}_intermediate.bed"
     threads: 1
     resources:
         mem=16,
-        load=75,
-        disk=0,
+        load=50,
+        disk=20,
         hrs=240,
+        heavy_io=2,
     benchmark:
         "benchmarks/rustybam_{sample}_{tech}_{type_map}_{scatteritem}.bench.txt"
     singularity:
         "docker://eichlerlab/assembly_eval:0.4"
-    shell:
-        """
-        rustybam nucfreq  --bed {input.depth} {input.bam} > {output.bed}
+    shell: """
+        rustybam nucfreq  --bed {input.depth} {input.bam} > {resources.tmpdir}/{params.tmp_bed}
+        rsync -a {resources.tmpdir}/{params.tmp_bed} {output.bed}
+        rm -f {resources.tmpdir}/{params.tmp_bed}
         touch {output.flag}
         """
 
@@ -629,8 +623,7 @@ rule filter_bed:
         hrs=12,
     singularity:
         "docker://eichlerlab/assembly_eval:0.4"
-    shell:
-        """
+    shell: """
         bedtools merge -i {input.bed} -c 1,4 -o count,collapse -d 5000 | awk '$4 > 2' | bedtools merge -i - -d 15000 -c 5 -o collapse | awk '{{printf "%s\\t%s\\t%s\\t%s\\n", $1, $2-5000, $3+5000,$4}}' > {output.filtered_bed}
         """
 
@@ -692,8 +685,7 @@ rule trigger_steps:
         location_all="{sample}/coverage/{tech}/{type_map}/aggregated/{scatteritem}_break.bed",
     singularity:
         "docker://eichlerlab/assembly_eval:0.4"
-    shell:
-        """
+    shell: """
         cp -l {input.bed} {output.location_all}
         """
 
@@ -713,8 +705,7 @@ rule combine_outputs:
         hrs=12,
     singularity:
         "docker://eichlerlab/assembly_eval:0.4"
-    shell:
-        """
+    shell: """
         cat {input.all_beds} | awk -F'\\t' -v OFS='\\t' '{{split($4,a,","); asort(a); $4=""; delete b; for(i in a) if(!b[a[i]]++) $4=$4 a[i] ","; sub(/,$/,"",$4); print}}' > {output.cat_beds}
         """
 
@@ -740,7 +731,7 @@ rule formatContigs:
             write_line = str(contig) + "\n"
             outfile.write(write_line)
         outfile.close()
-[]
+
 
 rule filterFasta:
     input:
@@ -757,8 +748,7 @@ rule filterFasta:
         hrs=1,
     singularity:
         "docker://eichlerlab/assembly_eval:0.4"
-    shell:
-        """
+    shell: """
         samtools faidx -r {input.contigs} {input.assembly} > {output.filt_fasta}
         """
 
@@ -780,8 +770,7 @@ rule rptm:
         species=getSpecies,
     singularity:
         "docker://eichlerlab/assembly_eval:0.4"
-    shell:
-        """
+    shell: """
         RepeatMasker -e rmblast -species {params.species} -dir {params.directory} -pa {threads} {input.assembly} > {log} 2>&1 
         """
 

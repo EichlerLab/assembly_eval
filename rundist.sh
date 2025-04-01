@@ -34,10 +34,12 @@ snakemake -p \
                 -l h_rt={resources.hrs}:00:00  \
                 -shell y \
                 -l mfree={resources.mem}G \
+                -l heavy_io={resources.heavy_io} \
                 -pe serial {threads} \
                 -w n \
                 -V -cwd \
                 -S /bin/bash" \
+        --default-resources "heavy_io=0" \
         --drmaa-log-dir $logDir \
         --latency-wait $waitTime \
         --use-singularity \
