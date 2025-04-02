@@ -543,25 +543,24 @@ rule rustybam:
         bed="{sample}/coverage/{tech}/{type_map}/{scatteritem}_intermediate.bed",
         flag="{sample}/coverage/{tech}/{type_map}/{scatteritem}_intermediate.done",
     params:
-        tmp_bed="{sample}_{tech}_{type_map}_{scatteritem}_intermediate.bed"
-    threads: 1
+        tmp_bed="{sample}_{tech}_{type_map}_{scatteritem}_intermediate.bed",
+        rustybam_bin="/net/eichler/vol28/software/modules-sw/rustybam/0.1.33/Linux/Ubuntu22.04/x86_64/bin/rustybam"
+    threads: 8
     resources:
-        mem=16,
+        mem=4,
         load=50,
-        disk=20,
+        disk=0,
         hrs=240,
-        heavy_io=2,
+        heavy_io=1,
     benchmark:
         "benchmarks/rustybam_{sample}_{tech}_{type_map}_{scatteritem}.bench.txt"
-    singularity:
-        "docker://eichlerlab/assembly_eval:0.4"
     shell: """
-        rustybam nucfreq  --bed {input.depth} {input.bam} > {resources.tmpdir}/{params.tmp_bed}
+        {params.rustybam_bin} -t {threads} nucfreq --bed {input.depth} {input.bam} 2>/dev/null > {resources.tmpdir}/{params.tmp_bed}
+        rustybam -t {threads} nucfreq --bed {input.depth} {input.bam} 2>/dev/null > tmp/{params.tmp_bed}
         rsync -a {resources.tmpdir}/{params.tmp_bed} {output.bed}
         rm -f {resources.tmpdir}/{params.tmp_bed}
         touch {output.flag}
         """
-
 
 rule filter_rustybam:
     input:

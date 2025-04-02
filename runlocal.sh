@@ -31,7 +31,7 @@ snakemake -p \
         -s $snakefile \
         --latency-wait $waitTime \
         --use-singularity \
-        --singularity-args="--bind /net/:/net/" \
+        --singularity-args="--bind /net:/net" \
         --restart-times $retry  \
         --ri \
         --jobs $@
