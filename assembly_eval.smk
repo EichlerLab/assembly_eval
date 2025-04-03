@@ -556,7 +556,7 @@ rule rustybam:
         "benchmarks/rustybam_{sample}_{tech}_{type_map}_{scatteritem}.bench.txt"
     shell: """
         {params.rustybam_bin} -t {threads} nucfreq --bed {input.depth} {input.bam} 2>/dev/null > {resources.tmpdir}/{params.tmp_bed}
-        rustybam -t {threads} nucfreq --bed {input.depth} {input.bam} 2>/dev/null > tmp/{params.tmp_bed}
+        rustybam -t {threads} nucfreq --bed {input.depth} {input.bam} 2>/dev/null > {resources.tmpdir}/{params.tmp_bed}
         rsync -a {resources.tmpdir}/{params.tmp_bed} {output.bed}
         rm -f {resources.tmpdir}/{params.tmp_bed}
         touch {output.flag}
