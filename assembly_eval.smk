@@ -551,7 +551,6 @@ rule rustybam:
         load=50,
         disk=0,
         hrs=240,
-        heavy_io=1,
     benchmark:
         "benchmarks/rustybam_{sample}_{tech}_{type_map}_{scatteritem}.bench.txt"
     shell: """
