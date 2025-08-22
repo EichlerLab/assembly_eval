@@ -17,7 +17,7 @@ SAMPLES = list(config.keys())
 FOFNS = {}
 TYPE_MAP = {}
 #GET_BED = []
-SAMFLAG = config.get("SAMFLAG", "256")
+SAMFLAG = config.get("SAMFLAG", "2308")
 
 expand_series = pd.Series([[], [], []], index=["sample", "tech", "type_map"])
 
@@ -106,7 +106,7 @@ def getContigs(wildcards):
 
 
 def getNuc(wildcards):
-    bam = f"{wildcards.sample}/alignments/{wildcards.tech}/{wildcards.type_map}/all_{wildcards.tech}.cram"
+    bam = f"{wildcards.sample}/alignments/nucfreq/{wildcards.tech}/{wildcards.type_map}/all_{wildcards.tech}.cram"
     # bam = f"{wildcards.sample}/alignments/{wildcards.tech}/{wildcards.type_map}/{wildcards.region}/all_{wildcards.tech}.bam"
     rptm = f"{wildcards.sample}/repeatMasker/{wildcards.region}.fa.out"
     if config[wildcards.sample]["repeat_mask"]:
