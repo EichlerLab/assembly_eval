@@ -1,0 +1,3 @@
+FileNotFoundError in file /net/eichler/vol28/software/pipelines/assembly_eval/assembly_eval.smk, line 38:
+[Errno 2] No such file or directory: '/net/eichler/vol27/projects/hgsvc/nobackups/assemblies/verkko/v1.4-hgsvc/HG00733/HG00733_PB.fofn'
+  File "/net/eichler/vol28/software/pipelines/assembly_eval/assembly_eval.smk", line 38, in <module>

@@ -17,7 +17,7 @@ SAMPLES = list(config.keys())
 FOFNS = {}
 TYPE_MAP = {}
 #GET_BED = []
-SAMFLAG = config.get("SAMFLAG", "2308")
+SAMFLAG = config.get("SAMFLAG", "256")
 
 expand_series = pd.Series([[], [], []], index=["sample", "tech", "type_map"])
 
@@ -52,7 +52,7 @@ for SM in SAMPLES:
 
 
 # print(FOFNS)
-#shell.prefix("source %s/env.cfg; " % (SNAKEMAKE_DIR))
+# shell.prefix("source %s/env.cfg; " % (SNAKEMAKE_DIR))
 
 
 def getAsm(wildcards):
@@ -106,8 +106,8 @@ def getContigs(wildcards):
 
 
 def getNuc(wildcards):
-    bam = f"{wildcards.sample}/alignments/nucfreq/{wildcards.tech}/{wildcards.type_map}/all_{wildcards.tech}.cram"
-    # bam = f"{wildcards.sample}/alignments/{wildcards.tech}/{wildcards.type_map}/{wildcards.region}/all_{wildcards.tech}.bam"
+    # bam = f"{wildcards.sample}/alignments/{wildcards.tech}/{wildcards.type_map}/all_{wildcards.tech}.cram"
+    bam = f"{wildcards.sample}/alignments/{wildcards.tech}/{wildcards.type_map}/{wildcards.region}/all_{wildcards.tech}.bam"
     rptm = f"{wildcards.sample}/repeatMasker/{wildcards.region}.fa.out"
     if config[wildcards.sample]["repeat_mask"]:
         return {"bam": bam, "rptm": rptm}
@@ -143,16 +143,10 @@ def gatherBreaks(wildcards):
     )
 
 
-def get_minimap_opt(wildcards):
-    if wildcards.tech in ["HiFi", "ONT-Q20"]:
-        return "lr:hqae" ## applied for aligning accurate long reads back to their assembly. in minimap2 2.28.0
-    elif wildcards.tech == "ONT":
-        return "map-ont"
-
-def get_winnowmap_opt(wildcards):
+def getFlag(wildcards):
     if wildcards.tech == "HiFi":
         return "map-pb"
-    elif re.search(wildcards.tech,"ONT"): ## ONT or ONT-Q20
+    elif wildcards.tech == "ONT":
         return "map-ont"
 
 
@@ -186,9 +180,6 @@ def nucfeq_output(wildcards):
                         )
     return set(nucfeq_out)
 
-wildcard_constraints:
-    tech="HiFi|ONT|ONT-Q20",
-    type_map="minimap2|winnowmap"
 
 scattergather:
     split=30,
@@ -196,6 +187,7 @@ scattergather:
 
 localrules:
     rptm,
+    nucFreq,
     calc_cov,
     trigger_steps,
     getFinal,
@@ -214,10 +206,11 @@ rule all_eval:
             type_map=expand_series["type_map"],
         ),
 
+
 rule all_align:
     input:
         expand(
-            "{sample}/alignments/{tech}/{type_map}/all_{tech}.cram",
+            "{sample}/alignments/{tech}/{type_map}/all_{tech}.bam",
             zip,
             sample=expand_series["sample"],
             tech=expand_series["tech"],
@@ -243,8 +236,9 @@ rule combine_asm:
         disk=0,
         hrs=4,
     singularity:
-        "docker://eichlerlab/assembly_eval:0.4"
-    shell: """
+        "docker://eichlerlab/assembly_eval:0.1"
+    shell:
+        """
         for asm in $( echo {input} ); do
             if ( file $( readlink -f ${{asm}} ) | grep -q zip ); then
                 zcat ${{asm}} | bgzip -c >> {output.comb_fast}
@@ -268,8 +262,9 @@ rule countKmers:
         disk=0,
         hrs=8,
     singularity:
-        "docker://eichlerlab/assembly_eval:0.4"
-    shell: """
+        "docker://eichlerlab/assembly_eval:0.1"
+    shell:
+        """
         meryl count k=15 output {output.dirct} {input.assembly}
         """
 
@@ -286,8 +281,9 @@ rule getRepeatKmers:
         disk=0,
         hrs=8,
     singularity:
-        "docker://eichlerlab/assembly_eval:0.4"
-    shell: """
+        "docker://eichlerlab/assembly_eval:0.1"
+    shell:
+        """
         meryl print greater-than distinct=0.9998 {input.db} > {output.rep}
         """
 
@@ -298,19 +294,20 @@ rule map_minimap:
         assembly=rules.combine_asm.output.comb_fast,
         fai=rules.combine_asm.output.comb_fai,
     output:
-        bam=temp("{sample}/alignments/{tech}/minimap2/tmp/{read}.bam"),
+        bam="{sample}/alignments/{tech}/minimap2/tmp/{read}.bam",
     threads: 12
     params:
-        map_opt=get_minimap_opt,
+        winn_opt=getFlag,
     resources:
         mem=12,
         load=100,
         disk=0,
         hrs=48,
     singularity:
-        "docker://eichlerlab/assembly_eval:0.4"
-    shell: """
-        minimap2 -a -t {threads} -I 10G -Y -x {params.map_opt} --eqx -L --cs {input.assembly} {input.fasta} | samtools sort -o {output.bam} -
+        "docker://eichlerlab/assembly_eval:0.1"
+    shell:
+        """
+        minimap2 -a -t {threads} -I 10G -Y -x {params.winn_opt} --eqx -ax lr:hq   -L --cs {input.assembly} {input.fasta} | samtools sort -o {output.bam} -
         """
 
 
@@ -322,6 +319,7 @@ rule map_winnowmap:
         repKmers=rules.getRepeatKmers.output.rep,
     output:
         bam=temp("{sample}/alignments/{tech}/winnowmap/tmp/{read}.bam"),
+        #bam="{sample}/alignments/{tech}/winnowmap/all_{tech}.bam",
     threads: 12
     resources:
         mem=lambda wildcards, attempt: attempt * 10,
@@ -329,11 +327,12 @@ rule map_winnowmap:
         load=100,
         hrs=120,
     params:
-        map_opt=get_winnowmap_opt,
+        winn_opt=getFlag,
     singularity:
-        "docker://eichlerlab/assembly_eval:0.4"
-    shell: """
-        winnowmap -W {input.repKmers} -t {threads} -I 10G -Y -ax {params.map_opt} --MD --cs -L --eqx {input.assembly} {input.fasta} | samtools sort -o {output.bam} -
+        "docker://eichlerlab/assembly_eval:0.1"
+    shell:
+        """
+        winnowmap -W {input.repKmers} -t {threads} -I 10G -Y -ax {params.winn_opt} --MD --cs -L --eqx {input.assembly} {input.fasta} | samtools sort -o {output.bam} -
         """
 
 
@@ -341,7 +340,7 @@ rule combine_alignments:
     input:
         align=gatherAlignments,
     output:
-        combined=temp("{sample}/alignments/{tech}/{type_map}/all_{tech}.bam"),
+        combined="{sample}/alignments/{tech}/{type_map}/all_{tech}.bam",
     threads: 4
     resources:
         mem=8,
@@ -349,54 +348,55 @@ rule combine_alignments:
         load=100,
         hrs=48,
     singularity:
-        "docker://eichlerlab/assembly_eval:0.4"
-    shell: """
+        "docker://eichlerlab/assembly_eval:0.1"
+    shell:
+        """
         samtools merge -@ {threads} {output.combined} {input.align}
         samtools index {output.combined}
         """
 
 
-rule cram_alignments:
-    input:
-        bam = rules.combine_alignments.output.combined,
-        ref = rules.combine_asm.output.comb_fast,
-    output:
-        cram="{sample}/alignments/{tech}/{type_map}/all_{tech}.cram",
-    params:
-        samflag_for_flagger = 3588
-    threads: 4
-    resources:
-        mem=8,
-        disk=0,
-        load=100,
-        hrs=48,
-    singularity:
-        "docker://eichlerlab/assembly_eval:0.4"
-    shell: """
-        samtools view -@ {threads} -F {params.samflag_for_flagger} -C -T {input.ref} -o {output.cram} {input.bam}
-        samtools index {output.cram}
-        """
+# rule cram_alignments:
+#     input:
+#         bam = rules.combine_alignments.output.combined,
+#         ref = rules.combine_asm.output.comb_fast,
+#     output:
+#         cram="{sample}/alignments/{tech}/{type_map}/all_{tech}.cram",
+#     threads: 4
+#     resources:
+#         mem=8,
+#         disk=0,
+#         load=100,
+#         hrs=48,
+#     singularity:
+#         "docker://eichlerlab/assembly_eval:0.1"
+#     shell:
+#         """
+#         samtools view -@ {threads} -C -T {input.ref} -o {output.cram} {input.bam}
+#         samtools index {output.cram}
+#         """
 
-rule cram_nucfreq:
-    input:
-        bam = rules.cram_alignments.output.cram,
-        ref = rules.combine_asm.output.comb_fast,
-    output:
-        cram="{sample}/alignments/nucfreq/{tech}/{type_map}/all_{tech}.cram",
-    params:
-        samflag=SAMFLAG
-    threads: 4
-    resources:
-        mem=8,
-        disk=0,
-        load=100,
-        hrs=48,
-    singularity:
-        "docker://eichlerlab/assembly_eval:0.4"
-    shell: """
-        samtools view -@ {threads} -F {params.samflag} -C -T {input.ref} -o {output.cram} {input.bam}
-        samtools index {output.cram}
-        """
+# rule cram_nucfreq:
+#     input:
+#         bam = rules.cram_alignments.output.cram,
+#         ref = rules.combine_asm.output.comb_fast,
+#     output:
+#         cram="{sample}/alignments/nucfreq/{tech}/{type_map}/all_{tech}.cram",
+#     params:
+#         samflag=SAMFLAG
+#     threads: 4
+#     resources:
+#         mem=8,
+#         disk=0,
+#         load=100,
+#         hrs=48,
+#     singularity:
+#         "docker://eichlerlab/assembly_eval:0.1"
+#     shell:
+#         """
+#         samtools view -@ {threads} -F {params.samflag} -C -T {input.ref} -o {output.cram} {input.bam}
+#         samtools index {output.cram}
+#         """
 
 
 
@@ -415,7 +415,7 @@ rule hifi_fai_to_beds:
         file_name = input.fai
         N_IDS = len(output.bed)
         # print(output.bed)
-
+        outs = [open(f, "wb") for f in output.bed]
         # print(outs)
         fai_df = pd.read_csv(
             input.fai,
@@ -423,58 +423,33 @@ rule hifi_fai_to_beds:
             names=["contig", "len", "offset", "byte", "encode"],
             sep="\t",
         )
-        
-        total_genome_length = sum(fai_df["len"])
-        chunk_len = int(total_genome_length/N_IDS)
-
-
-
-        bed_dict = dict()
-        split_index = 0
-        accum_len = 0
-
-        for idx, row in fai_df.iterrows():
-            chrom = row["contig"]
-            end = row["len"]
-            start = 0
-            contig_len = end - start
-
-            while contig_len > 0:
-                if split_index == N_IDS - 1: # the last chunk
-                    to_take = min(contig_len, remain)
-                    invertal = "%s\t%s\t%s"%(chrom,start,start+to_take)
-                    bed_dict.setdefault(split_index, []).append(invertal)
-                    start += to_take
-                    contig_len -= to_take
-                    continue
-
-
-                remain = chunk_len - accum_len
-                to_take = min(contig_len, remain)
-                invertal = "%s\t%s\t%s"%(chrom,start,start+to_take)
-                bed_dict.setdefault(split_index, []).append(invertal)
-
-                start += to_take
-                contig_len -= to_take
-                accum_len += to_take
-
-                if accum_len == chunk_len:
-                    split_index += 1
-                    accum_len = 0
-
-        outs = [open(f, "wb") for f in output.bed]
-
-        for i in range(N_IDS):
-            outs[i].write(("\n".join(bed_dict[i])+"\n").encode())
-            outs[i].close()
-            
-
+        bed_df = pd.DataFrame(columns=["chrom", "start", "stop"])
+        bed_df["chrom"] = fai_df["contig"].values.tolist()
+        bed_df = bed_df.assign(start="0")
+        bed_df["stop"] = fai_df["len"].values.tolist()
+        out_idx = 0
+        # print(out_idx)
+        for i in bed_df.index:
+            out_list = (
+                bed_df.iloc[i, :].to_string(header=False, index=False).split("\n")
+            )
+            out_str = "".join(out_list)
+            print(out_idx)
+            # print(outs[out_idx])
+            outs[out_idx].write((out_str + "\n").encode())
+            out_idx += 1
+            if out_idx == N_IDS:
+                out_idx = 0
+        for out in outs:
+            out.close()
 
 
 rule get_depth_cov:
     input:
         bed="temp/{sample}/coverage/contigs_{scatteritem}.bed",
-        bam=rules.cram_nucfreq.output.cram,
+        #bam=rules.cram_nucfreq.output.cram,
+        #bam=rules.map_winnowmap.output.bam,
+        bam=rules.combine_alignments.output.combined,
     output:
         depth="{sample}/coverage/{tech}/{type_map}/tmp/filtered_{scatteritem}.tsv",
     threads: 1
@@ -484,8 +459,9 @@ rule get_depth_cov:
         load=50,
         hrs=12,
     singularity:
-        "docker://eichlerlab/assembly_eval:0.4"
-    shell: """
+        "docker://eichlerlab/assembly_eval:0.1"
+    shell:
+        """
         samtools depth -b {input.bed} -a {input.bam} > {output.depth}
         """
 
@@ -531,8 +507,9 @@ checkpoint filter_depth_cov:
         disk=0,
         hrs=12,
     singularity:
-        "docker://eichlerlab/assembly_eval:0.4"
-    shell: """
+        "docker://eichlerlab/assembly_eval:0.1"
+    shell:
+        """
         cat {input.cov}| xargs -i awk '{{if ($3 > {{}} || $3==0) printf ("%s\\t%s\\t%s\\n", $1, $2, $2)}}' {input.depth}| bedtools merge -i - > {output.depth}  
         """
 
@@ -540,32 +517,29 @@ checkpoint filter_depth_cov:
 rule rustybam:
     input:
         depth=rules.filter_depth_cov.output.depth,
-        bam=rules.cram_nucfreq.output.cram,
+        #bam=rules.cram_nucfreq.output.cram,
+        bam=rules.combine_alignments.output.combined,
     output:
         bed="{sample}/coverage/{tech}/{type_map}/{scatteritem}_intermediate.bed",
-        flag="{sample}/coverage/{tech}/{type_map}/{scatteritem}_intermediate.done",
-    params:
-        tmp_bed="{sample}_{tech}_{type_map}_{scatteritem}_intermediate.bed",
-        rustybam_bin="/net/eichler/vol28/software/modules-sw/rustybam/0.1.33/Linux/Ubuntu22.04/x86_64/bin/rustybam"
-    threads: 8
+    threads: 4
     resources:
-        mem=4,
-        load=75,
-        disk=10,
-        hrs=72,
+        mem=12,
+        load=50,
+        disk=0,
+        hrs=12,
     benchmark:
         "benchmarks/rustybam_{sample}_{tech}_{type_map}_{scatteritem}.bench.txt"
-    shell: """
-        {params.rustybam_bin} -t {threads} nucfreq --bed {input.depth} {input.bam} 2>/dev/null > {resources.tmpdir}/{params.tmp_bed}
-        rsync -a {resources.tmpdir}/{params.tmp_bed} {output.bed}
-        rm -f {resources.tmpdir}/{params.tmp_bed}
-        touch {output.flag}
+    singularity:
+        "docker://eichlerlab/assembly_eval:0.1"
+    shell:
         """
+        rustybam nucfreq  --bed {input.depth} {input.bam} > {output.bed}                
+        """
+
 
 rule filter_rustybam:
     input:
         bed=rules.rustybam.output.bed,
-        flag=rules.rustybam.output.flag,
     output:
         combined="{sample}/coverage/{tech}/{type_map}/{scatteritem}_intermediate_2.bed",
     threads: 1
@@ -573,7 +547,7 @@ rule filter_rustybam:
         mem=50,
         load=50,
         disk=0,
-        hrs=72,
+        hrs=24,
     run:
         with open(input.bed, "r") as infile:
             for line in infile:
@@ -621,8 +595,9 @@ rule filter_bed:
         disk=0,
         hrs=12,
     singularity:
-        "docker://eichlerlab/assembly_eval:0.4"
-    shell: """
+        "docker://eichlerlab/assembly_eval:0.1"
+    shell:
+        """
         bedtools merge -i {input.bed} -c 1,4 -o count,collapse -d 5000 | awk '$4 > 2' | bedtools merge -i - -d 15000 -c 5 -o collapse | awk '{{printf "%s\\t%s\\t%s\\t%s\\n", $1, $2-5000, $3+5000,$4}}' > {output.filtered_bed}
         """
 
@@ -683,8 +658,9 @@ rule trigger_steps:
     output:
         location_all="{sample}/coverage/{tech}/{type_map}/aggregated/{scatteritem}_break.bed",
     singularity:
-        "docker://eichlerlab/assembly_eval:0.4"
-    shell: """
+        "docker://eichlerlab/assembly_eval:0.1"
+    shell:
+        """
         cp -l {input.bed} {output.location_all}
         """
 
@@ -703,8 +679,9 @@ rule combine_outputs:
         load=50,
         hrs=12,
     singularity:
-        "docker://eichlerlab/assembly_eval:0.4"
-    shell: """
+        "docker://eichlerlab/assembly_eval:0.2"
+    shell:
+        """
         cat {input.all_beds} | awk -F'\\t' -v OFS='\\t' '{{split($4,a,","); asort(a); $4=""; delete b; for(i in a) if(!b[a[i]]++) $4=$4 a[i] ","; sub(/,$/,"",$4); print}}' > {output.cat_beds}
         """
 
@@ -746,8 +723,9 @@ rule filterFasta:
         disk=0,
         hrs=1,
     singularity:
-        "docker://eichlerlab/assembly_eval:0.4"
-    shell: """
+        "docker://eichlerlab/assembly_eval:0.1"
+    shell:
+        """
         samtools faidx -r {input.contigs} {input.assembly} > {output.filt_fasta}
         """
 
@@ -768,8 +746,9 @@ rule rptm:
         directory="{sample}/repeatMasker/",
         species=getSpecies,
     singularity:
-        "docker://eichlerlab/assembly_eval:0.4"
-    shell: """
+        "docker://eichlerlab/assembly_eval:0.1"
+    shell:
+        """
         RepeatMasker -e rmblast -species {params.species} -dir {params.directory} -pa {threads} {input.assembly} > {log} 2>&1 
         """
 
@@ -791,7 +770,7 @@ checkpoint splitBeds:
         img_count=getCount,
     run:
         bed_df = pd.read_csv(
-            input.contigs, header=None, sep="\t", names=["contig", "start", "stop"], index_col=False
+            input.contigs, header=None, sep="\t", names=["contig", "start", "stop"]
         )
         bed_df = bed_df.sample(frac=1).reset_index(drop=True)
         groups = bed_df.groupby(np.arange(len(bed_df.index)) // int(params.img_count))
