@@ -17,7 +17,7 @@ SAMPLES = list(config.keys())
 FOFNS = {}
 TYPE_MAP = {}
 #GET_BED = []
-SAMFLAG = config.get("SAMFLAG", "256")
+SAMFLAG = config.get("SAMFLAG", "2308")
 
 expand_series = pd.Series([[], [], []], index=["sample", "tech", "type_map"])
 
@@ -41,12 +41,18 @@ for SM in SAMPLES:
             FOFNS[SM]["ONT"] = [
                 line.strip() for line in open(config[SM]["fofns"]["ONT"]).readlines()
             ]
+        if "FiberSeq" in config[SM]["fofns"]:
+            FOFNS[SM]["FiberSeq"] = [
+                line.strip() for line in open(config[SM]["fofns"]["FiberSeq"]).readlines()
+            ]
     if "type_map" in config[SM]:
         TYPE_MAP[SM] = {}
         if "HiFi" in config[SM]["type_map"]:
             TYPE_MAP[SM]["HiFi"] = config[SM]["type_map"]["HiFi"]
         if "ONT" in config[SM]["type_map"]:
             TYPE_MAP[SM]["ONT"] = config[SM]["type_map"]["ONT"]
+        if "FiberSeq" in config[SM]["type_map"]:
+            TYPE_MAP[SM]["FiberSeq"] = config[SM]["type_map"]["FiberSeq"]
 #    if config[SM]["genBed"]:
 #        GET_BED.append(SM)
 
@@ -106,7 +112,7 @@ def getContigs(wildcards):
 
 
 def getNuc(wildcards):
-    bam = f"{wildcards.sample}/alignments/{wildcards.tech}/{wildcards.type_map}/all_{wildcards.tech}.cram"
+    bam = f"{wildcards.sample}/alignments/nucfreq/{wildcards.tech}/{wildcards.type_map}/all_{wildcards.tech}.cram"
     # bam = f"{wildcards.sample}/alignments/{wildcards.tech}/{wildcards.type_map}/{wildcards.region}/all_{wildcards.tech}.bam"
     rptm = f"{wildcards.sample}/repeatMasker/{wildcards.region}.fa.out"
     if config[wildcards.sample]["repeat_mask"]:
@@ -144,13 +150,13 @@ def gatherBreaks(wildcards):
 
 
 def get_minimap_opt(wildcards):
-    if wildcards.tech in ["HiFi", "ONT-Q20"]:
+    if wildcards.tech in ["HiFi", "ONT-Q20", "FiberSeq"]:
         return "lr:hqae" ## applied for aligning accurate long reads back to their assembly. in minimap2 2.28.0
     elif wildcards.tech == "ONT":
         return "map-ont"
 
 def get_winnowmap_opt(wildcards):
-    if wildcards.tech == "HiFi":
+    if wildcards.tech in ["HiFi", "FiberSeq"]:
         return "map-pb"
     elif re.search(wildcards.tech,"ONT"): ## ONT or ONT-Q20
         return "map-ont"
@@ -187,7 +193,7 @@ def nucfeq_output(wildcards):
     return set(nucfeq_out)
 
 wildcard_constraints:
-    tech="HiFi|ONT|ONT-Q20",
+    tech="HiFi|ONT|ONT-Q20|FiberSeq",
     type_map="minimap2|winnowmap"
 
 scattergather:
@@ -299,11 +305,11 @@ rule map_minimap:
         fai=rules.combine_asm.output.comb_fai,
     output:
         bam=temp("{sample}/alignments/{tech}/minimap2/tmp/{read}.bam"),
-    threads: 12
+    threads: 24
     params:
         map_opt=get_minimap_opt,
     resources:
-        mem=12,
+        mem=lambda wildcards, attempt: attempt * 10,
         load=100,
         disk=0,
         hrs=48,
@@ -322,7 +328,7 @@ rule map_winnowmap:
         repKmers=rules.getRepeatKmers.output.rep,
     output:
         bam=temp("{sample}/alignments/{tech}/winnowmap/tmp/{read}.bam"),
-    threads: 12
+    threads: 24
     resources:
         mem=lambda wildcards, attempt: attempt * 10,
         disk=0,
@@ -342,7 +348,7 @@ rule combine_alignments:
         align=gatherAlignments,
     output:
         combined=temp("{sample}/alignments/{tech}/{type_map}/all_{tech}.bam"),
-    threads: 4
+    threads: 16
     resources:
         mem=8,
         disk=0,
@@ -362,7 +368,9 @@ rule cram_alignments:
         ref = rules.combine_asm.output.comb_fast,
     output:
         cram="{sample}/alignments/{tech}/{type_map}/all_{tech}.cram",
-    threads: 4
+    params:
+        samflag_for_flagger = 3588
+    threads: 16
     resources:
         mem=8,
         disk=0,
@@ -371,7 +379,7 @@ rule cram_alignments:
     singularity:
         "docker://eichlerlab/assembly_eval:0.4"
     shell: """
-        samtools view -@ {threads} -C -T {input.ref} -o {output.cram} {input.bam}
+        samtools view -@ {threads} -F {params.samflag_for_flagger} -C -T {input.ref} -o {output.cram} {input.bam}
         samtools index {output.cram}
         """
 
@@ -531,7 +539,7 @@ checkpoint filter_depth_cov:
     singularity:
         "docker://eichlerlab/assembly_eval:0.4"
     shell: """
-        cat {input.cov}| xargs -i awk '{{if ($3 > {{}} || $3==0) printf ("%s\\t%s\\t%s\\n", $1, $2, $2)}}' {input.depth}| bedtools merge -i - > {output.depth}  
+        cat {input.cov}| xargs -i awk '{{if ($3 > {{}} || $3==0) printf ("%s\\t%s\\t%s\\n", $1, $2-1, $2)}}' {input.depth}| bedtools merge -i - > {output.depth}  
         """
 
 
@@ -545,7 +553,7 @@ rule rustybam:
     params:
         tmp_bed="{sample}_{tech}_{type_map}_{scatteritem}_intermediate.bed",
         rustybam_bin="/net/eichler/vol28/software/modules-sw/rustybam/0.1.33/Linux/Ubuntu22.04/x86_64/bin/rustybam"
-    threads: 8
+    threads: 16
     resources:
         mem=4,
         load=75,
@@ -557,6 +565,10 @@ rule rustybam:
         {params.rustybam_bin} -t {threads} nucfreq --bed {input.depth} {input.bam} 2>/dev/null > {resources.tmpdir}/{params.tmp_bed}
         rsync -a {resources.tmpdir}/{params.tmp_bed} {output.bed}
         rm -f {resources.tmpdir}/{params.tmp_bed}
+        if [[ ! -s {output.bed} ]]; then
+            echo "Error: {output.bed} is empty" >&2
+            exit 1
+        fi        
         touch {output.flag}
         """
 

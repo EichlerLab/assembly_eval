@@ -35,6 +35,7 @@ snakemake -p \
                 -shell y \
                 -l mfree={resources.mem}G \
                 -l heavy_io={resources.heavy_io} \
+		-l cpuid_level=15 \
                 -pe serial {threads} \
                 -w n \
                 -V -cwd \
