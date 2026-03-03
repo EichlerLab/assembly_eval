@@ -539,7 +539,7 @@ checkpoint filter_depth_cov:
     singularity:
         "docker://eichlerlab/assembly_eval:0.4"
     shell: """
-        cat {input.cov}| xargs -i awk '{{if ($3 > {{}} || $3==0) printf ("%s\\t%s\\t%s\\n", $1, $2-1, $2)}}' {input.depth}| bedtools merge -i - > {output.depth}  
+        cat {input.cov}| xargs -i awk '{{if ($3 > {{}} || $3==0) printf ("%s\\t%s\\t%s\\n", $1, $2, $2)}}' {input.depth}| bedtools merge -i - > {output.depth}
         """
 
 
@@ -555,10 +555,10 @@ rule rustybam:
         rustybam_bin="/net/eichler/vol28/software/modules-sw/rustybam/0.1.33/Linux/Ubuntu22.04/x86_64/bin/rustybam"
     threads: 16
     resources:
-        mem=4,
+        mem=8,
         load=75,
         disk=10,
-        hrs=72,
+        hrs=240,
     benchmark:
         "benchmarks/rustybam_{sample}_{tech}_{type_map}_{scatteritem}.bench.txt"
     shell: """
@@ -583,7 +583,7 @@ rule filter_rustybam:
         mem=50,
         load=50,
         disk=0,
-        hrs=72,
+        hrs=120,
     run:
         with open(input.bed, "r") as infile:
             for line in infile:
@@ -593,15 +593,23 @@ rule filter_rustybam:
                     print("Column names:", col_names)
                 else:
                     break
-        bed_df = pd.read_csv(input.bed, sep="\t", header=0, comment="#", names=col_names)
-        #bed_df[["A", "G", "T", "C"]] = bed_df[["A", "G", "T", "C"]].apply(pd.to_numeric)
-        bed_df["second_highest"] = bed_df.iloc[:,][["A", "G", "T", "C"]].apply(
-            lambda row: row.nlargest(2).values[-1], axis=1
+        bed_df = pd.read_csv(
+            input.bed,
+            sep="\t",
+            names=col_names,
+            header=0
         )
+        bed_df = bed_df[bed_df["#chr"] != "#chr"]
+        vals = bed_df[["A","C","G","T"]].to_numpy(dtype=np.int32)
+        bed_df["second_highest"] = np.partition(vals, -2, axis=1)[:, -2]
+        bed_df["second_highest"] = pd.to_numeric(
+            bed_df["second_highest"],
+            errors="coerce"
+        ).astype("int32")
+
         collapse_df = bed_df.loc[bed_df["second_highest"] > 5]
         collapse_df = collapse_df[["#chr", "start", "end"]]
         collapse_df = collapse_df.assign(type_err="collapse")
-        print(collapse_df)
         missassembly_df = bed_df.loc[
             (bed_df["A"] == 0)
             & (bed_df["C"] == 0)
@@ -610,10 +618,8 @@ rule filter_rustybam:
         ]
         missassembly_df = missassembly_df[["#chr", "start", "end"]]
         missassembly_df = missassembly_df.assign(type_err="misassembly")
-        print(missassembly_df)
         combined_df = pd.concat([missassembly_df, collapse_df], ignore_index=True)
         combined_df = combined_df.sort_values(by=["#chr", "start", "end"])
-        print(combined_df)
         combined_df.to_csv(output.combined, sep="\t", header=None, index=None)
         # misassembly_df.to_csv(output.misassembly_bed, sep="\t", header=None, index=None)
 
@@ -633,7 +639,7 @@ rule filter_bed:
     singularity:
         "docker://eichlerlab/assembly_eval:0.4"
     shell: """
-        bedtools merge -i {input.bed} -c 1,4 -o count,collapse -d 5000 | awk '$4 > 2' | bedtools merge -i - -d 15000 -c 5 -o collapse | awk '{{printf "%s\\t%s\\t%s\\t%s\\n", $1, $2-5000, $3+5000,$4}}' > {output.filtered_bed}
+        bedtools sort -i {input.bed} | bedtools merge -c 1,4 -o count,collapse -d 5000 | awk '$4 > 2' | bedtools merge -i - -d 15000 -c 5 -o collapse | awk '{{printf "%s\\t%s\\t%s\\t%s\\n", $1, $2-5000, $3+5000,$4}}' > {output.filtered_bed}
         """
 
 
